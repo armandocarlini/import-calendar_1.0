@@ -9,14 +9,16 @@ from googleapiclient.discovery import build
 # ================================
 # 🔐 CONFIGURAÇÕES
 # ================================
-FEEGOW_API_KEY = "eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJpc3MiOiJmZWVnb3ciLCJhdWQiOiJwdWJsaWNhcGkiLCJpYXQiOjE3NjQyNzA0MzEsImxpY2Vuc2VJRCI6NDA1NTZ9.55jit2-hEkNqjSerXA_Mlpr5CKKlOKtB1D-_EvZgPNw"
+import os
+
+
 BASE_URL = "https://api.feegow.com/v1/api"
 
 PROFISSIONAL_ID = 1
 PER_PAGE = 50
 
 TIMEZONE = "America/Sao_Paulo"
-CALENDAR_ID = "9365ffbec50787cb9be5fa17b6c837dd713631567ce523c142ea3f720f0999a3@group.calendar.google.com"
+CALENDAR_ID = os.getenv("CALENDAR_ID")
 GOOGLE_CREDENTIALS_FILE = "credentials.json"
 
 INTERVALO_EXECUCAO = 60  # segundos (1 minuto)
