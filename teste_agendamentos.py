@@ -2,6 +2,8 @@ import math
 import requests
 import time
 import logging
+import os
+import json
 from datetime import datetime, timedelta, date
 from google.oauth2 import service_account
 from googleapiclient.discovery import build
@@ -9,19 +11,27 @@ from googleapiclient.discovery import build
 # ================================
 # 🔐 CONFIGURAÇÕES
 # ================================
-import os
 
 FEEGOW_API_KEY = os.getenv("FEEGOW_API_KEY")
+CALENDAR_ID = os.getenv("CALENDAR_ID")
+GOOGLE_CREDENTIALS_JSON = os.getenv("GOOGLE_CREDENTIALS_JSON")
+
 BASE_URL = "https://api.feegow.com/v1/api"
 
 PROFISSIONAL_ID = 1
 PER_PAGE = 50
-
 TIMEZONE = "America/Sao_Paulo"
-CALENDAR_ID = os.getenv("CALENDAR_ID")
-GOOGLE_CREDENTIALS_FILE = "credentials.json"
+INTERVALO_EXECUCAO = 60  # segundos
 
-INTERVALO_EXECUCAO = 60  # segundos (1 minuto)
+# Validação básica de segurança
+if not FEEGOW_API_KEY:
+    raise ValueError("FEEGOW_API_KEY não definida nas variáveis de ambiente")
+
+if not CALENDAR_ID:
+    raise ValueError("CALENDAR_ID não definida nas variáveis de ambiente")
+
+if not GOOGLE_CREDENTIALS_JSON:
+    raise ValueError("GOOGLE_CREDENTIALS_JSON não definida nas variáveis de ambiente")
 
 HEADERS = {
     "x-access-token": FEEGOW_API_KEY,
@@ -31,6 +41,7 @@ HEADERS = {
 # ================================
 # 🎨 MAPA DE CORES
 # ================================
+
 STATUS_COLOR_MAP = {
     3: "10",
     1: "9",
@@ -43,16 +54,20 @@ STATUS_COLOR_MAP = {
 # ================================
 # LOGGING
 # ================================
+
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s - %(levelname)s - %(message)s"
 )
 
 # ================================
-# GOOGLE CALENDAR
+# GOOGLE CALENDAR (via JSON em variável)
 # ================================
-credentials = service_account.Credentials.from_service_account_file(
-    GOOGLE_CREDENTIALS_FILE,
+
+credentials_dict = json.loads(GOOGLE_CREDENTIALS_JSON)
+
+credentials = service_account.Credentials.from_service_account_info(
+    credentials_dict,
     scopes=["https://www.googleapis.com/auth/calendar.events"]
 )
 
@@ -61,12 +76,14 @@ calendar = build("calendar", "v3", credentials=credentials)
 # ================================
 # CACHE
 # ================================
+
 PACIENTES_CACHE = {}
 PROCEDIMENTOS_CACHE = {}
 
 # ================================
 # ADD_MONTHS
 # ================================
+
 def add_months(data, months):
     month = data.month - 1 + months
     year = data.year + month // 12
@@ -85,6 +102,7 @@ def add_months(data, months):
 # ================================
 # BUSCAR STATUS
 # ================================
+
 def buscar_mapa_status():
     resp = requests.get(f"{BASE_URL}/appoints/status", headers=HEADERS)
     status_map = {}
@@ -99,6 +117,7 @@ def buscar_mapa_status():
 # ================================
 # BUSCAR AGENDAMENTOS
 # ================================
+
 def buscar_agendamentos(data_start, data_end):
     agendamentos_por_id = {}
     page = 1
@@ -145,6 +164,7 @@ def buscar_agendamentos(data_start, data_end):
 # ================================
 # BUSCAR EVENTO GOOGLE
 # ================================
+
 def buscar_evento_por_feegow_id(feegow_id):
     eventos = calendar.events().list(
         calendarId=CALENDAR_ID,
@@ -158,12 +178,13 @@ def buscar_evento_por_feegow_id(feegow_id):
 # ================================
 # VERIFICAR ATUALIZAÇÃO
 # ================================
+
 def evento_precisa_atualizar(evento_google, novo_evento):
 
     if not evento_google:
         return True
 
-    campos = ["summary", "description", "colorId", "transparency"]
+    campos = ["summary", "description", "colorId"]
 
     for campo in campos:
         if evento_google.get(campo) != novo_evento.get(campo):
@@ -180,6 +201,7 @@ def evento_precisa_atualizar(evento_google, novo_evento):
 # ================================
 # SINCRONIZAÇÃO
 # ================================
+
 def migrar_agenda():
 
     hoje = date.today()
@@ -255,8 +277,9 @@ def migrar_agenda():
     logging.info(f"Criados: {criados} | Atualizados: {atualizados}")
 
 # ================================
-# LOOP CONTÍNUO (RENDER)
+# LOOP CONTÍNUO
 # ================================
+
 def main():
     logging.info("🚀 Worker Feegow → Google iniciado")
 
