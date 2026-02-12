@@ -21,7 +21,7 @@ BASE_URL = "https://api.feegow.com/v1/api"
 PROFISSIONAL_ID = 1
 PER_PAGE = 50
 TIMEZONE = "America/Sao_Paulo"
-INTERVALO_EXECUCAO = 15 * 60  # 15 minutos em segundos
+INTERVALO_EXECUCAO = 60  # segundos
 
 # Validação básica de segurança
 if not FEEGOW_API_KEY:
@@ -38,41 +38,36 @@ HEADERS = {
     "Accept": "application/json"
 }
 
+# ================================
+# 🎨 MAPA DE CORES
+# ================================
+
+STATUS_COLOR_MAP = {
+    3: "10",
+    1: "9",
+    7: "1",
+    2: "5",
+    4: "6",
+    6: "11",
+}
 
 # ================================
-# 📅 FUNÇÃO DE DATA (SEM DEPENDÊNCIA)
+# LOGGING
 # ================================
-def add_months(data, months):
-    month = data.month - 1 + months
-    year = data.year + month // 12
-    month = month % 12 + 1
 
-    day = min(
-        data.day,
-        [31,
-         29 if year % 4 == 0 and (year % 100 != 0 or year % 400 == 0) else 28,
-         31, 30, 31, 30,
-         31, 31, 30, 31, 30, 31][month - 1]
-    )
-
-    return date(year, month, day)
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s - %(levelname)s - %(message)s"
+)
 
 # ================================
-# 📆 INTERVALO AUTOMÁTICO (FEGOW)
+# GOOGLE CALENDAR (via JSON em variável)
 # ================================
-data_start = date.today()
 
-# Feegow exige intervalo MENOR que 6 meses
-data_end = add_months(data_start, 6) - timedelta(days=1)
+credentials_dict = json.loads(GOOGLE_CREDENTIALS_JSON)
 
-print("data-start:", data_start.strftime("%Y-%m-%d"))
-print("data-end:", data_end.strftime("%Y-%m-%d"))
-
-# ================================
-# 🔑 GOOGLE CALENDAR
-# ================================
-credentials = service_account.Credentials.from_service_account_file(
-    GOOGLE_CREDENTIALS_JSON,
+credentials = service_account.Credentials.from_service_account_info(
+    credentials_dict,
     scopes=["https://www.googleapis.com/auth/calendar.events"]
 )
 
@@ -83,6 +78,20 @@ calendar = build("calendar", "v3", credentials=credentials)
 # ================================
 PACIENTES_CACHE = {}
 PROCEDIMENTOS_CACHE = {}
+
+# ================================
+# 📌 MAPA DE STATUS
+# ================================
+def buscar_mapa_status():
+    resp = requests.get(f"{BASE_URL}/appoints/status", headers=HEADERS)
+    status_map = {}
+
+    if resp.status_code == 200:
+        data = resp.json()
+        for item in data.get("content", []):
+            status_map[item["id"]] = item["status"]
+
+    return status_map
 
 # ================================
 # 📡 BUSCAR AGENDAMENTOS
@@ -120,8 +129,6 @@ def buscar_agendamentos():
             print(f"📊 Total registros: {total}")
             print(f"📄 Total páginas: {total_pages}")
 
-        print(f"📄 Página {page} → {len(content)} registros")
-
         for ag in content:
             ag_id = ag.get("agendamento_id")
             if ag_id:
@@ -135,7 +142,7 @@ def buscar_agendamentos():
     return list(agendamentos_por_id.values())
 
 # ================================
-# 👤 BUSCAR NOME DO PACIENTE
+# 👤 BUSCAR PACIENTE
 # ================================
 def buscar_nome_paciente(paciente_id):
     if not paciente_id:
@@ -165,7 +172,7 @@ def buscar_nome_paciente(paciente_id):
     return nome
 
 # ================================
-# 🧾 BUSCAR NOME DO PROCEDIMENTO
+# 🧾 BUSCAR PROCEDIMENTO
 # ================================
 def buscar_nome_procedimento(procedimento_id):
     if not procedimento_id:
@@ -204,11 +211,33 @@ def buscar_evento_por_feegow_id(feegow_id):
     return items[0] if items else None
 
 # ================================
-# 📅 SINCRONIZAR AGENDA
+# 🧠 VERIFICAR SE PRECISA ATUALIZAR
+# ================================
+def evento_precisa_atualizar(evento_google, novo_evento):
+
+    if not evento_google:
+        return True
+
+    campos = ["summary", "description", "colorId", "transparency"]
+
+    for campo in campos:
+        if evento_google.get(campo) != novo_evento.get(campo):
+            return True
+
+    if evento_google["start"].get("dateTime") != novo_evento["start"].get("dateTime"):
+        return True
+
+    if evento_google["end"].get("dateTime") != novo_evento["end"].get("dateTime"):
+        return True
+
+    return False
+
+# ================================
+# 📅 SINCRONIZAR
 # ================================
 def migrar_agenda():
+    status_map = buscar_mapa_status()
     agendamentos = buscar_agendamentos()
-    print(f"\n🔎 Total único após deduplicação: {len(agendamentos)}\n")
 
     criados = 0
     atualizados = 0
@@ -216,6 +245,9 @@ def migrar_agenda():
     for ag in agendamentos:
         try:
             feegow_id = ag.get("agendamento_id")
+            status_id = ag.get("status_id")
+            status_nome = status_map.get(status_id, "")
+
             evento_existente = buscar_evento_por_feegow_id(str(feegow_id))
 
             data = ag.get("data")
@@ -232,16 +264,23 @@ def migrar_agenda():
             paciente_nome = buscar_nome_paciente(ag.get("paciente_id"))
             procedimento_nome = buscar_nome_procedimento(ag.get("procedimento_id"))
             motivo = procedimento_nome if procedimento_nome else "Consulta"
-            assistente_agendamento = ag.get("agendado_por", "")
+            assistente = ag.get("agendado_por", "")
 
+            titulo = f"{paciente_nome} - {motivo}"
+            colorId = STATUS_COLOR_MAP.get(status_id)
+            transparency = "opaque"
+
+            if status_id == 3:
+                titulo = f"[ATENDIDO] {paciente_nome} - {motivo}"
+                transparency = "transparent"
 
             evento = {
-                "summary": f"{paciente_nome} - {motivo}",
+                "summary": titulo,
                 "description": (
                     f"Paciente: {paciente_nome}\n"
                     f"Motivo: {motivo}\n"
-                    f"Concierge: {assistente_agendamento}\n"
-
+                    f"Status: {status_nome}\n"
+                    f"Concierge: {assistente}"
                 ),
                 "start": {
                     "dateTime": inicio_dt.isoformat(),
@@ -251,6 +290,7 @@ def migrar_agenda():
                     "dateTime": fim_dt.isoformat(),
                     "timeZone": TIMEZONE
                 },
+                "transparency": transparency,
                 "extendedProperties": {
                     "private": {
                         "feegow_id": str(feegow_id)
@@ -258,21 +298,27 @@ def migrar_agenda():
                 }
             }
 
+            if colorId:
+                evento["colorId"] = colorId
+
             if evento_existente:
-                calendar.events().update(
-                    calendarId=CALENDAR_ID,
-                    eventId=evento_existente["id"],
-                    body=evento
-                ).execute()
-                atualizados += 1
-                print(f"🔁 Atualizado: {paciente_nome} - {motivo}")
+                if evento_precisa_atualizar(evento_existente, evento):
+                    calendar.events().update(
+                        calendarId=CALENDAR_ID,
+                        eventId=evento_existente["id"],
+                        body=evento
+                    ).execute()
+                    atualizados += 1
+                    print(f"🔁 Atualizado: {titulo}")
+                else:
+                    print(f"⏭️ Sem alteração: {titulo}")
             else:
                 calendar.events().insert(
                     calendarId=CALENDAR_ID,
                     body=evento
                 ).execute()
                 criados += 1
-                print(f"✅ Criado: {paciente_nome} - {motivo}")
+                print(f"✅ Criado: {titulo}")
 
         except Exception as e:
             print("⚠️ Erro:", e)
@@ -280,7 +326,6 @@ def migrar_agenda():
     print("\n🎉 Sincronização finalizada")
     print(f"✅ Criados: {criados}")
     print(f"🔁 Atualizados: {atualizados}")
-
 
 # ================================
 # LOOP CONTÍNUO
