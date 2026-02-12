@@ -61,6 +61,35 @@ logging.basicConfig(
 )
 
 # ================================
+# 📆 FUNÇÃO ADD_MONTHS SEGURA
+# ================================
+def add_months(data, months):
+    month = data.month - 1 + months
+    year = data.year + month // 12
+    month = month % 12 + 1
+
+    day = min(
+        data.day,
+        [31,
+         29 if year % 4 == 0 and (year % 100 != 0 or year % 400 == 0) else 28,
+         31, 30, 31, 30,
+         31, 31, 30, 31, 30, 31][month - 1]
+    )
+
+    return date(year, month, day)
+
+# ================================
+# 📆 INTERVALO INTELIGENTE
+# ================================
+hoje = date.today()
+data_start = add_months(hoje, -1)
+data_end   = add_months(hoje, 4)
+
+print("data-start:", data_start.strftime("%Y-%m-%d"))
+print("data-end:", data_end.strftime("%Y-%m-%d"))
+
+
+# ================================
 # GOOGLE CALENDAR (via JSON em variável)
 # ================================
 
