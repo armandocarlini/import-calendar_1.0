@@ -11,7 +11,7 @@ from googleapiclient.discovery import build
 # ================================
 import os
 
-
+FEEGOW_API_KEY = os.getenv("FEEGOW_API_KEY")
 BASE_URL = "https://api.feegow.com/v1/api"
 
 PROFISSIONAL_ID = 1
