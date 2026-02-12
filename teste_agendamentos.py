@@ -21,7 +21,7 @@ BASE_URL = "https://api.feegow.com/v1/api"
 PROFISSIONAL_ID = 1
 PER_PAGE = 50
 TIMEZONE = "America/Sao_Paulo"
-INTERVALO_EXECUCAO = 60  # segundos
+INTERVALO_EXECUCAO = 15 * 60  # 15 minutos em segundos
 
 # Validação básica de segurança
 if not FEEGOW_API_KEY:
