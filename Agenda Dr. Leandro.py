@@ -18,7 +18,7 @@ GOOGLE_CREDENTIALS_JSON = os.getenv("GOOGLE_CREDENTIALS_JSON")
 
 BASE_URL = "https://api.feegow.com/v1/api"
 
-PROFISSIONAL_ID = 1
+PROFISSIONAL_ID = = int(os.getenv("PROFISSIONAL_ID"))
 PER_PAGE = 50
 TIMEZONE = "America/Sao_Paulo"
 INTERVALO_EXECUCAO = 15 * 60  # 15 minutos em segundos
