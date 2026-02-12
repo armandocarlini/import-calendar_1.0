@@ -18,19 +18,26 @@ GOOGLE_CREDENTIALS_JSON = os.getenv("GOOGLE_CREDENTIALS_JSON")
 
 BASE_URL = "https://api.feegow.com/v1/api"
 
-
 PROFISSIONAL_ID = 1
 PER_PAGE = 50
-
 TIMEZONE = "America/Sao_Paulo"
-CALENDAR_ID = "8a3ba6fbcae24999be7cf1bcf704fb0a7df7cb2f10ed4e991864ec03d2953182@group.calendar.google.com"
+INTERVALO_EXECUCAO = 15 * 60  # 15 minutos em segundos
 
-GOOGLE_CREDENTIALS_FILE = "credentials.json"
+# Validação básica de segurança
+if not FEEGOW_API_KEY:
+    raise ValueError("FEEGOW_API_KEY não definida nas variáveis de ambiente")
+
+if not CALENDAR_ID:
+    raise ValueError("CALENDAR_ID não definida nas variáveis de ambiente")
+
+if not GOOGLE_CREDENTIALS_JSON:
+    raise ValueError("GOOGLE_CREDENTIALS_JSON não definida nas variáveis de ambiente")
 
 HEADERS = {
     "x-access-token": FEEGOW_API_KEY,
     "Accept": "application/json"
 }
+
 
 # ================================
 # 📅 FUNÇÃO DE DATA (SEM DEPENDÊNCIA)
@@ -65,7 +72,7 @@ print("data-end:", data_end.strftime("%Y-%m-%d"))
 # 🔑 GOOGLE CALENDAR
 # ================================
 credentials = service_account.Credentials.from_service_account_file(
-    GOOGLE_CREDENTIALS_FILE,
+    GOOGLE_CREDENTIALS_JSON,
     scopes=["https://www.googleapis.com/auth/calendar.events"]
 )
 
@@ -273,13 +280,6 @@ def migrar_agenda():
     print("\n🎉 Sincronização finalizada")
     print(f"✅ Criados: {criados}")
     print(f"🔁 Atualizados: {atualizados}")
-
-# ================================
-# ▶️ EXECUÇÃO
-# ================================
-if __name__ == "__main__":
-    print("🚀 Sincronizando Feegow → Google Calendar")
-    migrar_agenda()
 
 
 # ================================
