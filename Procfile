@@ -1,1 +1,1 @@
-web: gunicorn teste_agendamentos:app
+web: gunicorn Agenda_Dr.Leandro:app
