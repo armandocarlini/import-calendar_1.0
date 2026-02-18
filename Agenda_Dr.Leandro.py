@@ -1,6 +1,7 @@
 import math
 import requests
 import logging
+import sys
 import os
 import json
 import threading
@@ -10,6 +11,9 @@ from google.oauth2 import service_account
 from googleapiclient.discovery import build
 from dotenv import load_dotenv
 
+# ================================
+# 🌱 CARREGAR VARIÁVEIS DE AMBIENTE
+# ================================
 load_dotenv()
 
 # ================================
@@ -26,7 +30,7 @@ sync_lock = threading.Lock()
 FEEGOW_API_KEY = os.getenv("FEEGOW_API_KEY")
 CALENDAR_ID = os.getenv("CALENDAR_ID")
 GOOGLE_CREDENTIALS_JSON = os.getenv("GOOGLE_CREDENTIALS_JSON")
-PROFISSIONAL_ID = int(os.getenv("PROFISSIONAL_ID"))
+PROFISSIONAL_ID = int(os.getenv("PROFISSIONAL_ID", 0))
 
 BASE_URL = "https://api.feegow.com/v1/api"
 PER_PAGE = 50
@@ -60,11 +64,12 @@ STATUS_COLOR_MAP = {
 }
 
 # ================================
-# LOGGING
+# LOGGING CONFIGURADO PARA STDOUT
 # ================================
 logging.basicConfig(
     level=logging.INFO,
-    format="%(asctime)s - %(levelname)s - %(message)s"
+    format="%(asctime)s - %(levelname)s - %(message)s",
+    handlers=[logging.StreamHandler(sys.stdout)]
 )
 
 # ================================
@@ -121,8 +126,7 @@ def buscar_mapa_status():
     resp = requests.get(f"{BASE_URL}/appoints/status", headers=HEADERS)
     status_map = {}
     if resp.status_code == 200:
-        data = resp.json()
-        for item in data.get("content", []):
+        for item in resp.json().get("content", []):
             status_map[item["id"]] = item["status"]
     return status_map
 
@@ -190,11 +194,7 @@ def buscar_nome_procedimento(procedimento_id):
         return None
     if procedimento_id in PROCEDIMENTOS_CACHE:
         return PROCEDIMENTOS_CACHE[procedimento_id]
-    resp = requests.get(
-        f"{BASE_URL}/procedures/list",
-        headers=HEADERS,
-        json={"procedimento_id": procedimento_id}
-    )
+    resp = requests.get(f"{BASE_URL}/procedures/list", headers=HEADERS, json={"procedimento_id": procedimento_id})
     nome = None
     if resp.status_code == 200:
         data = resp.json()
@@ -257,11 +257,7 @@ def migrar_agenda():
             if colorId:
                 evento["colorId"] = colorId
             if evento_existente:
-                calendar.events().update(
-                    calendarId=CALENDAR_ID,
-                    eventId=evento_existente["id"],
-                    body=evento
-                ).execute()
+                calendar.events().update(calendarId=CALENDAR_ID, eventId=evento_existente["id"], body=evento).execute()
                 atualizados += 1
                 logging.info(f"🔁 Atualizado: {titulo}")
             else:
@@ -294,4 +290,4 @@ def webhook():
 # ================================
 # ❌ REMOVIDO FLASK DEV SERVER
 # ================================
-# O Gunicorn irá gerenciar o servidor, então não é necessário o app.run
+# Gunicorn irá gerenciar o servidor
