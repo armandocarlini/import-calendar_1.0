@@ -1,0 +1,1 @@
+web: gunicorn teste_agendamentos:app

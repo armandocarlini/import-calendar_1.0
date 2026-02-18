@@ -1,12 +1,25 @@
 import math
 import requests
-import time
 import logging
 import os
 import json
+import threading
 from datetime import datetime, timedelta, date
+from flask import Flask, request, jsonify
 from google.oauth2 import service_account
 from googleapiclient.discovery import build
+from dotenv import load_dotenv
+
+load_dotenv()
+
+# ================================
+# 🚀 FLASK APP
+# ================================
+
+app = Flask(__name__)
+
+# 🔒 LOCK PARA EVITAR EXECUÇÕES SIMULTÂNEAS
+sync_lock = threading.Lock()
 
 # ================================
 # 🔐 CONFIGURAÇÕES
@@ -16,22 +29,24 @@ FEEGOW_API_KEY = os.getenv("FEEGOW_API_KEY")
 CALENDAR_ID = os.getenv("CALENDAR_ID")
 GOOGLE_CREDENTIALS_JSON = os.getenv("GOOGLE_CREDENTIALS_JSON")
 
-BASE_URL = "https://api.feegow.com/v1/api"
-
 PROFISSIONAL_ID = int(os.getenv("PROFISSIONAL_ID"))
+
+BASE_URL = "https://api.feegow.com/v1/api"
 PER_PAGE = 50
 TIMEZONE = "America/Sao_Paulo"
-INTERVALO_EXECUCAO = 15 * 60  # 15 minutos em segundos
 
-# Validação básica de segurança
+# ================================
+# 🔎 VALIDAÇÕES
+# ================================
+
 if not FEEGOW_API_KEY:
-    raise ValueError("FEEGOW_API_KEY não definida nas variáveis de ambiente")
+    raise ValueError("FEEGOW_API_KEY não definida")
 
 if not CALENDAR_ID:
-    raise ValueError("CALENDAR_ID não definida nas variáveis de ambiente")
+    raise ValueError("CALENDAR_ID não definida")
 
-if not GOOGLE_CREDENTIALS_JSON:
-    raise ValueError("GOOGLE_CREDENTIALS_JSON não definida nas variáveis de ambiente")
+if not PROFISSIONAL_ID:
+    raise ValueError("PROFISSIONAL_ID não definido")
 
 HEADERS = {
     "x-access-token": FEEGOW_API_KEY,
@@ -61,8 +76,9 @@ logging.basicConfig(
 )
 
 # ================================
-# 📆 FUNÇÃO ADD_MONTHS SEGURA
+# 📆 FUNÇÃO ADD_MONTHS
 # ================================
+
 def add_months(data, months):
     month = data.month - 1 + months
     year = data.year + month // 12
@@ -81,36 +97,42 @@ def add_months(data, months):
 # ================================
 # 📆 INTERVALO INTELIGENTE
 # ================================
+
 hoje = date.today()
 data_start = add_months(hoje, -1)
-data_end   = add_months(hoje, 4)
-
-print("data-start:", data_start.strftime("%Y-%m-%d"))
-print("data-end:", data_end.strftime("%Y-%m-%d"))
-
+data_end = add_months(hoje, 4)
 
 # ================================
-# GOOGLE CALENDAR (via JSON em variável)
+# 🔐 GOOGLE CALENDAR
 # ================================
 
-credentials_dict = json.loads(GOOGLE_CREDENTIALS_JSON)
+if os.getenv("GOOGLE_CREDENTIALS_JSON"):
+    credentials_dict = json.loads(os.getenv("GOOGLE_CREDENTIALS_JSON"))
+    credentials_dict["private_key"] = credentials_dict["private_key"].replace("\\n", "\n")
 
-credentials = service_account.Credentials.from_service_account_info(
-    credentials_dict,
-    scopes=["https://www.googleapis.com/auth/calendar.events"]
-)
+    credentials = service_account.Credentials.from_service_account_info(
+        credentials_dict,
+        scopes=["https://www.googleapis.com/auth/calendar.events"]
+    )
+else:
+    credentials = service_account.Credentials.from_service_account_file(
+        "credentials.json",
+        scopes=["https://www.googleapis.com/auth/calendar.events"]
+    )
 
 calendar = build("calendar", "v3", credentials=credentials)
 
 # ================================
 # 🧠 CACHE
 # ================================
+
 PACIENTES_CACHE = {}
 PROCEDIMENTOS_CACHE = {}
 
 # ================================
-# 📌 MAPA DE STATUS
+# 📌 MAPA STATUS
 # ================================
+
 def buscar_mapa_status():
     resp = requests.get(f"{BASE_URL}/appoints/status", headers=HEADERS)
     status_map = {}
@@ -125,6 +147,7 @@ def buscar_mapa_status():
 # ================================
 # 📡 BUSCAR AGENDAMENTOS
 # ================================
+
 def buscar_agendamentos():
     agendamentos_por_id = {}
     page = 1
@@ -146,7 +169,7 @@ def buscar_agendamentos():
         )
 
         if resp.status_code != 200:
-            print("❌ Erro Feegow:", resp.text)
+            logging.error(f"Erro Feegow: {resp.text}")
             break
 
         data = resp.json()
@@ -155,8 +178,8 @@ def buscar_agendamentos():
 
         if total_pages is None:
             total_pages = max(1, math.ceil(total / PER_PAGE))
-            print(f"📊 Total registros: {total}")
-            print(f"📄 Total páginas: {total_pages}")
+            logging.info(f"📊 Total registros: {total}")
+            logging.info(f"📄 Total páginas: {total_pages}")
 
         for ag in content:
             ag_id = ag.get("agendamento_id")
@@ -173,6 +196,7 @@ def buscar_agendamentos():
 # ================================
 # 👤 BUSCAR PACIENTE
 # ================================
+
 def buscar_nome_paciente(paciente_id):
     if not paciente_id:
         return "Paciente"
@@ -203,6 +227,7 @@ def buscar_nome_paciente(paciente_id):
 # ================================
 # 🧾 BUSCAR PROCEDIMENTO
 # ================================
+
 def buscar_nome_procedimento(procedimento_id):
     if not procedimento_id:
         return None
@@ -229,6 +254,7 @@ def buscar_nome_procedimento(procedimento_id):
 # ================================
 # 🔍 BUSCAR EVENTO GOOGLE
 # ================================
+
 def buscar_evento_por_feegow_id(feegow_id):
     eventos = calendar.events().list(
         calendarId=CALENDAR_ID,
@@ -240,31 +266,12 @@ def buscar_evento_por_feegow_id(feegow_id):
     return items[0] if items else None
 
 # ================================
-# 🧠 VERIFICAR SE PRECISA ATUALIZAR
+# 📅 SINCRONIZAÇÃO
 # ================================
-def evento_precisa_atualizar(evento_google, novo_evento):
 
-    if not evento_google:
-        return True
-
-    campos = ["summary", "description", "colorId", "transparency"]
-
-    for campo in campos:
-        if evento_google.get(campo) != novo_evento.get(campo):
-            return True
-
-    if evento_google["start"].get("dateTime") != novo_evento["start"].get("dateTime"):
-        return True
-
-    if evento_google["end"].get("dateTime") != novo_evento["end"].get("dateTime"):
-        return True
-
-    return False
-
-# ================================
-# 📅 SINCRONIZAR
-# ================================
 def migrar_agenda():
+    logging.info("🔄 Iniciando sincronização via webhook")
+
     status_map = buscar_mapa_status()
     agendamentos = buscar_agendamentos()
 
@@ -288,6 +295,7 @@ def migrar_agenda():
                 f"{data} {horario}",
                 "%d-%m-%Y %H:%M:%S"
             )
+
             fim_dt = inicio_dt + timedelta(minutes=30)
 
             paciente_nome = buscar_nome_paciente(ag.get("paciente_id"))
@@ -331,51 +339,54 @@ def migrar_agenda():
                 evento["colorId"] = colorId
 
             if evento_existente:
-                if evento_precisa_atualizar(evento_existente, evento):
-                    calendar.events().update(
-                        calendarId=CALENDAR_ID,
-                        eventId=evento_existente["id"],
-                        body=evento
-                    ).execute()
-                    atualizados += 1
-                    print(f"🔁 Atualizado: {titulo}")
-                else:
-                    print(f"⏭️ Sem alteração: {titulo}")
+                calendar.events().update(
+                    calendarId=CALENDAR_ID,
+                    eventId=evento_existente["id"],
+                    body=evento
+                ).execute()
+                atualizados += 1
+                logging.info(f"🔁 Atualizado: {titulo}")
             else:
                 calendar.events().insert(
                     calendarId=CALENDAR_ID,
                     body=evento
                 ).execute()
                 criados += 1
-                print(f"✅ Criado: {titulo}")
+                logging.info(f"✅ Criado: {titulo}")
 
         except Exception as e:
-            print("⚠️ Erro:", e)
+            logging.error(f"Erro ao sincronizar: {e}")
 
-    print("\n🎉 Sincronização finalizada")
-    print(f"✅ Criados: {criados}")
-    print(f"🔁 Atualizados: {atualizados}")
+    logging.info("🎉 Sincronização finalizada")
+    logging.info(f"✅ Criados: {criados}")
+    logging.info(f"🔁 Atualizados: {atualizados}")
 
 # ================================
-# LOOP CONTÍNUO
+# 🌐 WEBHOOK
 # ================================
 
-def main():
-    logging.info("🚀 Worker Feegow → Google iniciado")
+@app.route("/webhook", methods=["POST"])
+def webhook():
+    try:
+        logging.info("📩 Webhook recebido")
 
-    while True:
-        inicio = time.time()
+        if sync_lock.locked():
+            logging.info("⚠️ Sincronização já em andamento. Webhook ignorado.")
+            return "Já sincronizando", 200
 
-        try:
+        with sync_lock:
             migrar_agenda()
-        except Exception as e:
-            logging.error(f"Erro geral: {e}")
 
-        tempo_execucao = time.time() - inicio
-        espera = max(0, INTERVALO_EXECUCAO - tempo_execucao)
+        return "OK", 200
 
-        logging.info(f"Aguardando {espera:.0f}s para próxima execução")
-        time.sleep(espera)
+    except Exception as e:
+        logging.error(f"Erro no webhook: {e}")
+        return "Erro interno", 500
+
+# ================================
+# 🚀 START SERVER
+# ================================
 
 if __name__ == "__main__":
-    main()
+    port = int(os.environ.get("PORT", 5000))
+    app.run(host="0.0.0.0", port=port)
