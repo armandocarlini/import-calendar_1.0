@@ -267,6 +267,7 @@ def evento_precisa_atualizar(evento_google, novo_evento):
 def migrar_agenda():
     status_map = buscar_mapa_status()
     agendamentos = buscar_agendamentos()
+    ids_feegow_atuais = set(str(ag["agendamento_id"]) for ag in agendamentos if ag.get("agendamento_id"))
 
     criados = 0
     atualizados = 0
