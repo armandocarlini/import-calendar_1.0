@@ -227,7 +227,33 @@ def buscar_nome_procedimento(procedimento_id):
     return nome
 
 # ================================
-# 🔍 BUSCAR EVENTO GOOGLE
+# BUSCAR TODOS EVENTOS GOOGLE
+# ================================
+
+def buscar_todos_eventos_feegow():
+    eventos_feegow = []
+    page_token = None
+
+    while True:
+        eventos = calendar.events().list(
+            calendarId=CALENDAR_ID,
+            privateExtendedProperty="feegow_id",
+            pageToken=page_token
+        ).execute()
+
+        for item in eventos.get("items", []):
+            feegow_id = item.get("extendedProperties", {}).get("private", {}).get("feegow_id")
+            if feegow_id:
+                eventos_feegow.append((feegow_id, item["id"]))
+
+        page_token = eventos.get("nextPageToken")
+        if not page_token:
+            break
+
+    return eventos_feegow
+
+# ================================
+# 🔍 BUSCAR EVENTO GOOGLE POR ID
 # ================================
 def buscar_evento_por_feegow_id(feegow_id):
     eventos = calendar.events().list(
