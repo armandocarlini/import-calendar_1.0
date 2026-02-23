@@ -313,14 +313,29 @@ def migrar_agenda():
             # ============================
             # 🔴 REMOVER SE DESMARCADO (11 ou 16)
             # ============================
-            if status_id in [11, 16]:
+            STATUS_CANCELADOS = {11, 16}
+
+            # Garantir que status_id seja inteiro
+            try:
+                status_id = int(status_id) if status_id is not None else None
+            except:
+                status_id = None
+
+            if status_id in STATUS_CANCELADOS:
                 if evento_existente:
+                    logging.warning(
+                        f"🗑️ EXCLUINDO → feegow_id={feegow_id} | "
+                        f"status_id={status_id} | status_nome={status_nome}"
+                    )
+
                     calendar.events().delete(
                         calendarId=CALENDAR_ID,
                         eventId=evento_existente["id"]
                     ).execute()
+
                     removidos += 1
-                    logging.info(f"🗑️ Removido (Desmarcado): {feegow_id}")
+                    logging.info(f"🗑️ Removido (Cancelado no Feegow): {feegow_id}")
+
                 continue
 
             data = ag.get("data")
