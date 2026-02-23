@@ -21,17 +21,16 @@ BASE_URL = "https://api.feegow.com/v1/api"
 PROFISSIONAL_ID = int(os.getenv("PROFISSIONAL_ID"))
 PER_PAGE = 50
 TIMEZONE = "America/Sao_Paulo"
-INTERVALO_EXECUCAO = 15 * 60  # 15 minutos em segundos
+INTERVALO_EXECUCAO = 15 * 60  # 15 minutos
 
-# Validação básica de segurança
 if not FEEGOW_API_KEY:
-    raise ValueError("FEEGOW_API_KEY não definida nas variáveis de ambiente")
+    raise ValueError("FEEGOW_API_KEY não definida")
 
 if not CALENDAR_ID:
-    raise ValueError("CALENDAR_ID não definida nas variáveis de ambiente")
+    raise ValueError("CALENDAR_ID não definida")
 
 if not GOOGLE_CREDENTIALS_JSON:
-    raise ValueError("GOOGLE_CREDENTIALS_JSON não definida nas variáveis de ambiente")
+    raise ValueError("GOOGLE_CREDENTIALS_JSON não definida")
 
 HEADERS = {
     "x-access-token": FEEGOW_API_KEY,
@@ -61,13 +60,13 @@ logging.basicConfig(
 )
 
 # ================================
-# 📆 FUNÇÃO ADD_MONTHS SEGURA
+# 📆 ADD_MONTHS
 # ================================
+
 def add_months(data, months):
     month = data.month - 1 + months
     year = data.year + month // 12
     month = month % 12 + 1
-
     day = min(
         data.day,
         [31,
@@ -75,22 +74,14 @@ def add_months(data, months):
          31, 30, 31, 30,
          31, 31, 30, 31, 30, 31][month - 1]
     )
-
     return date(year, month, day)
 
-# ================================
-# 📆 INTERVALO INTELIGENTE
-# ================================
 hoje = date.today()
 data_start = add_months(hoje, -1)
-data_end   = add_months(hoje, 4)
-
-print("data-start:", data_start.strftime("%Y-%m-%d"))
-print("data-end:", data_end.strftime("%Y-%m-%d"))
-
+data_end = add_months(hoje, 4)
 
 # ================================
-# GOOGLE CALENDAR (via JSON em variável)
+# GOOGLE CALENDAR
 # ================================
 
 credentials_dict = json.loads(GOOGLE_CREDENTIALS_JSON)
@@ -103,14 +94,16 @@ credentials = service_account.Credentials.from_service_account_info(
 calendar = build("calendar", "v3", credentials=credentials)
 
 # ================================
-# 🧠 CACHE
+# CACHE
 # ================================
+
 PACIENTES_CACHE = {}
 PROCEDIMENTOS_CACHE = {}
 
 # ================================
-# 📌 MAPA DE STATUS
+# MAPA STATUS
 # ================================
+
 def buscar_mapa_status():
     resp = requests.get(f"{BASE_URL}/appoints/status", headers=HEADERS)
     status_map = {}
@@ -123,8 +116,9 @@ def buscar_mapa_status():
     return status_map
 
 # ================================
-# 📡 BUSCAR AGENDAMENTOS
+# BUSCAR AGENDAMENTOS
 # ================================
+
 def buscar_agendamentos():
     agendamentos_por_id = {}
     page = 1
@@ -146,7 +140,7 @@ def buscar_agendamentos():
         )
 
         if resp.status_code != 200:
-            print("❌ Erro Feegow:", resp.text)
+            logging.error(f"Erro Feegow: {resp.text}")
             break
 
         data = resp.json()
@@ -155,8 +149,6 @@ def buscar_agendamentos():
 
         if total_pages is None:
             total_pages = max(1, math.ceil(total / PER_PAGE))
-            print(f"📊 Total registros: {total}")
-            print(f"📄 Total páginas: {total_pages}")
 
         for ag in content:
             ag_id = ag.get("agendamento_id")
@@ -171,64 +163,35 @@ def buscar_agendamentos():
     return list(agendamentos_por_id.values())
 
 # ================================
-# 👤 BUSCAR PACIENTE
+# BUSCAR TODOS EVENTOS GOOGLE
 # ================================
-def buscar_nome_paciente(paciente_id):
-    if not paciente_id:
-        return "Paciente"
 
-    if paciente_id in PACIENTES_CACHE:
-        return PACIENTES_CACHE[paciente_id]
+def buscar_todos_eventos_feegow():
+    eventos_feegow = []
+    page_token = None
 
-    resp = requests.get(
-        f"{BASE_URL}/patient/search",
-        headers=HEADERS,
-        params={
-            "paciente_id": paciente_id,
-            "programa_saude": 1,
-            "photo": 0
-        }
-    )
+    while True:
+        eventos = calendar.events().list(
+            calendarId=CALENDAR_ID,
+            privateExtendedProperty="feegow_id",
+            pageToken=page_token
+        ).execute()
 
-    nome = "Paciente"
+        for item in eventos.get("items", []):
+            feegow_id = item.get("extendedProperties", {}).get("private", {}).get("feegow_id")
+            if feegow_id:
+                eventos_feegow.append((feegow_id, item["id"]))
 
-    if resp.status_code == 200:
-        data = resp.json()
-        if data.get("success") and data.get("content"):
-            nome = data["content"].get("nome", nome)
+        page_token = eventos.get("nextPageToken")
+        if not page_token:
+            break
 
-    PACIENTES_CACHE[paciente_id] = nome
-    return nome
+    return eventos_feegow
 
 # ================================
-# 🧾 BUSCAR PROCEDIMENTO
+# BUSCAR EVENTO POR ID
 # ================================
-def buscar_nome_procedimento(procedimento_id):
-    if not procedimento_id:
-        return None
 
-    if procedimento_id in PROCEDIMENTOS_CACHE:
-        return PROCEDIMENTOS_CACHE[procedimento_id]
-
-    resp = requests.get(
-        f"{BASE_URL}/procedures/list",
-        headers=HEADERS,
-        json={"procedimento_id": procedimento_id}
-    )
-
-    nome = None
-
-    if resp.status_code == 200:
-        data = resp.json()
-        if data.get("success") and data.get("content"):
-            nome = data["content"][0].get("nome")
-
-    PROCEDIMENTOS_CACHE[procedimento_id] = nome
-    return nome
-
-# ================================
-# 🔍 BUSCAR EVENTO GOOGLE
-# ================================
 def buscar_evento_por_feegow_id(feegow_id):
     eventos = calendar.events().list(
         calendarId=CALENDAR_ID,
@@ -240,8 +203,9 @@ def buscar_evento_por_feegow_id(feegow_id):
     return items[0] if items else None
 
 # ================================
-# 🧠 VERIFICAR SE PRECISA ATUALIZAR
+# VERIFICAR ALTERAÇÃO
 # ================================
+
 def evento_precisa_atualizar(evento_google, novo_evento):
 
     if not evento_google:
@@ -262,23 +226,35 @@ def evento_precisa_atualizar(evento_google, novo_evento):
     return False
 
 # ================================
-# 📅 SINCRONIZAR
+# SINCRONIZAÇÃO
 # ================================
+
 def migrar_agenda():
+    logging.info("🔄 Iniciando sincronização...")
+
     status_map = buscar_mapa_status()
     agendamentos = buscar_agendamentos()
-    ids_feegow_atuais = set(str(ag["agendamento_id"]) for ag in agendamentos if ag.get("agendamento_id"))
+    ids_feegow_atuais = set(
+        str(ag["agendamento_id"])
+        for ag in agendamentos
+        if ag.get("agendamento_id")
+    )
 
     criados = 0
     atualizados = 0
+    removidos = 0
+
+    # ====================
+    # CRIAR / ATUALIZAR
+    # ====================
 
     for ag in agendamentos:
         try:
-            feegow_id = ag.get("agendamento_id")
+            feegow_id = str(ag.get("agendamento_id"))
             status_id = ag.get("status_id")
             status_nome = status_map.get(status_id, "")
 
-            evento_existente = buscar_evento_por_feegow_id(str(feegow_id))
+            evento_existente = buscar_evento_por_feegow_id(feegow_id)
 
             data = ag.get("data")
             horario = ag.get("horario")
@@ -323,7 +299,7 @@ def migrar_agenda():
                 "transparency": transparency,
                 "extendedProperties": {
                     "private": {
-                        "feegow_id": str(feegow_id)
+                        "feegow_id": feegow_id
                     }
                 }
             }
@@ -339,26 +315,43 @@ def migrar_agenda():
                         body=evento
                     ).execute()
                     atualizados += 1
-                    print(f"🔁 Atualizado: {titulo}")
-                else:
-                    print(f"⏭️ Sem alteração: {titulo}")
             else:
                 calendar.events().insert(
                     calendarId=CALENDAR_ID,
                     body=evento
                 ).execute()
                 criados += 1
-                print(f"✅ Criado: {titulo}")
 
         except Exception as e:
-            print("⚠️ Erro:", e)
+            logging.error(f"Erro ao processar {feegow_id}: {e}")
 
-    print("\n🎉 Sincronização finalizada")
-    print(f"✅ Criados: {criados}")
-    print(f"🔁 Atualizados: {atualizados}")
+    # ====================
+    # REMOVER EXCLUÍDOS
+    # ====================
+
+    logging.info("🔍 Verificando exclusões...")
+
+    eventos_google = buscar_todos_eventos_feegow()
+
+    for feegow_id, google_event_id in eventos_google:
+        if feegow_id not in ids_feegow_atuais:
+            try:
+                calendar.events().delete(
+                    calendarId=CALENDAR_ID,
+                    eventId=google_event_id
+                ).execute()
+                removidos += 1
+                logging.info(f"🗑️ Removido: {feegow_id}")
+            except Exception as e:
+                logging.error(f"Erro ao remover {feegow_id}: {e}")
+
+    logging.info(f"✅ Criados: {criados}")
+    logging.info(f"🔁 Atualizados: {atualizados}")
+    logging.info(f"🗑️ Removidos: {removidos}")
+    logging.info("🎉 Sincronização finalizada")
 
 # ================================
-# LOOP CONTÍNUO
+# LOOP
 # ================================
 
 def main():
@@ -375,7 +368,7 @@ def main():
         tempo_execucao = time.time() - inicio
         espera = max(0, INTERVALO_EXECUCAO - tempo_execucao)
 
-        logging.info(f"Aguardando {espera:.0f}s para próxima execução")
+        logging.info(f"Aguardando {espera:.0f}s")
         time.sleep(espera)
 
 if __name__ == "__main__":
