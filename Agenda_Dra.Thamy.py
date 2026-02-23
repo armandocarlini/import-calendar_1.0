@@ -163,6 +163,79 @@ def buscar_agendamentos():
     return list(agendamentos_por_id.values())
 
 # ================================
+# BUSCAR NOME PACIENTE
+# ================================
+
+def buscar_nome_paciente(paciente_id):
+    if not paciente_id:
+        return "Paciente"
+
+    paciente_id = str(paciente_id)
+
+    if paciente_id in PACIENTES_CACHE:
+        return PACIENTES_CACHE[paciente_id]
+
+    try:
+        resp = requests.get(
+            f"{BASE_URL}/patient/search",
+            headers=HEADERS,
+            params={
+                "paciente_id": paciente_id,
+                "programa_saude": 1,
+                "photo": 0
+            }
+        )
+
+        nome = "Paciente"
+
+        if resp.status_code == 200:
+            data = resp.json()
+            if data.get("success") and data.get("content"):
+                nome = data["content"].get("nome", nome)
+
+        PACIENTES_CACHE[paciente_id] = nome
+        return nome
+
+    except Exception as e:
+        logging.error(f"Erro ao buscar paciente {paciente_id}: {e}")
+        return "Paciente"
+
+
+# ================================
+# BUSCAR NOME PROCEDIMENTO
+# ================================
+
+def buscar_nome_procedimento(procedimento_id):
+    if not procedimento_id:
+        return None
+
+    procedimento_id = str(procedimento_id)
+
+    if procedimento_id in PROCEDIMENTOS_CACHE:
+        return PROCEDIMENTOS_CACHE[procedimento_id]
+
+    try:
+        resp = requests.get(
+            f"{BASE_URL}/procedures/list",
+            headers=HEADERS,
+            json={"procedimento_id": procedimento_id}
+        )
+
+        nome = None
+
+        if resp.status_code == 200:
+            data = resp.json()
+            if data.get("success") and data.get("content"):
+                nome = data["content"][0].get("nome")
+
+        PROCEDIMENTOS_CACHE[procedimento_id] = nome
+        return nome
+
+    except Exception as e:
+        logging.error(f"Erro ao buscar procedimento {procedimento_id}: {e}")
+        return None
+
+# ================================
 # BUSCAR TODOS EVENTOS GOOGLE
 # ================================
 
