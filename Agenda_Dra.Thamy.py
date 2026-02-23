@@ -298,12 +298,6 @@ def migrar_agenda():
     status_map = buscar_mapa_status()
     agendamentos = buscar_agendamentos()
 
-    ids_feegow_atuais = set(
-        str(ag["agendamento_id"])
-        for ag in agendamentos
-        if ag.get("agendamento_id")
-    )
-
     criados = 0
     atualizados = 0
     removidos = 0
@@ -315,6 +309,19 @@ def migrar_agenda():
             status_nome = status_map.get(status_id, "")
 
             evento_existente = buscar_evento_por_feegow_id(str(feegow_id))
+
+            # ============================
+            # 🔴 REMOVER SE DESMARCADO (11 ou 16)
+            # ============================
+            if status_id in [11, 16]:
+                if evento_existente:
+                    calendar.events().delete(
+                        calendarId=CALENDAR_ID,
+                        eventId=evento_existente["id"]
+                    ).execute()
+                    removidos += 1
+                    logging.info(f"🗑️ Removido (Desmarcado): {feegow_id}")
+                continue
 
             data = ag.get("data")
             horario = ag.get("horario")
@@ -389,34 +396,11 @@ def migrar_agenda():
         except Exception as e:
             print("⚠️ Erro:", e)
 
-    print("\n🎉 Sincronização finalizada")
-    print(f"✅ Criados: {criados}")
-    print(f"🔁 Atualizados: {atualizados}")
-
-# ====================
-# REMOVER EXCLUÍDOS
-# ====================
-
-    logging.info("🔍 Verificando exclusões...")
-
-    eventos_google = buscar_todos_eventos_feegow()
-
-    for feegow_id, google_event_id in eventos_google:
-        if feegow_id not in ids_feegow_atuais:
-            try:
-                calendar.events().delete(
-                    calendarId=CALENDAR_ID,
-                    eventId=google_event_id
-                ).execute()
-                removidos += 1
-                logging.info(f"🗑️ Removido: {feegow_id}")
-            except Exception as e:
-                logging.error(f"Erro ao remover {feegow_id}: {e}")
-
     logging.info(f"✅ Criados: {criados}")
     logging.info(f"🔁 Atualizados: {atualizados}")
     logging.info(f"🗑️ Removidos: {removidos}")
     logging.info("🎉 Sincronização finalizada")
+
 
 # ================================
 # LOOP CONTÍNUO
