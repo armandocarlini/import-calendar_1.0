@@ -237,12 +237,16 @@ def buscar_todos_eventos_feegow():
     while True:
         eventos = calendar.events().list(
             calendarId=CALENDAR_ID,
-            privateExtendedProperty="feegow_id",
             pageToken=page_token
         ).execute()
 
         for item in eventos.get("items", []):
-            feegow_id = item.get("extendedProperties", {}).get("private", {}).get("feegow_id")
+            feegow_id = (
+                item.get("extendedProperties", {})
+                    .get("private", {})
+                    .get("feegow_id")
+            )
+
             if feegow_id:
                 eventos_feegow.append((feegow_id, item["id"]))
 
