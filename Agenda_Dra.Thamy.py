@@ -266,14 +266,17 @@ def buscar_todos_eventos_feegow():
 # 🔍 BUSCAR EVENTO GOOGLE POR ID
 # ================================
 def buscar_evento_por_feegow_id(feegow_id):
+
     eventos = calendar.events().list(
         calendarId=CALENDAR_ID,
-        privateExtendedProperty=f"feegow_id={feegow_id}",
-        maxResults=1
+        singleEvents=True
     ).execute()
 
-    items = eventos.get("items", [])
-    return items[0] if items else None
+    for item in eventos.get("items", []):
+        print(item.get("summary"),
+              item.get("extendedProperties"))
+
+    return None
 
 # ================================
 # 🧠 VERIFICAR SE PRECISA ATUALIZAR
