@@ -234,9 +234,15 @@ def buscar_todos_eventos_feegow():
     eventos_feegow = []
     page_token = None
 
+    time_min = datetime.combine(data_start, datetime.min.time()).isoformat() + "Z"
+    time_max = datetime.combine(data_end, datetime.max.time()).isoformat() + "Z"
+
     while True:
         eventos = calendar.events().list(
             calendarId=CALENDAR_ID,
+            timeMin=time_min,
+            timeMax=time_max,
+            singleEvents=True,
             pageToken=page_token
         ).execute()
 
@@ -301,6 +307,35 @@ def migrar_agenda():
     criados = 0
     atualizados = 0
     removidos = 0
+
+
+    # ==========================================
+    # 🗑️ REMOVER EVENTOS QUE SUMIRAM DO FEEGOW
+    # ==========================================
+
+    ids_feegow_atuais = {
+        str(ag.get("agendamento_id"))
+        for ag in agendamentos
+        if ag.get("agendamento_id")
+    }
+
+    eventos_google = buscar_todos_eventos_feegow()
+
+    for feegow_id_google, event_id_google in eventos_google:
+
+        if feegow_id_google not in ids_feegow_atuais:
+
+            logging.warning(
+                f"🗑️ REMOVENDO (Sumiu do Feegow) → feegow_id={feegow_id_google}"
+            )
+
+            calendar.events().delete(
+                calendarId=CALENDAR_ID,
+                eventId=event_id_google
+            ).execute()
+
+            removidos += 1
+
 
     for ag in agendamentos:
         try:
