@@ -21,8 +21,8 @@ BASE_URL = "https://api.feegow.com/v1/api"
 PROFISSIONAL_ID = int(os.getenv("PROFISSIONAL_ID"))
 PER_PAGE = 50
 TIMEZONE = "America/Sao_Paulo"
-# INTERVALO_EXECUCAO = 15 * 60  # 15 minutos em segundos
-INTERVALO_EXECUCAO = 28800  # 8 horas em segundos
+INTERVALO_EXECUCAO = 15 * 60  # 15 minutos em segundos
+# INTERVALO_EXECUCAO = 28800  # 8 horas em segundos
 
 # Validação básica de segurança
 if not FEEGOW_API_KEY:
