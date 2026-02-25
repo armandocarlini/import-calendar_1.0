@@ -7,7 +7,6 @@ import json
 from datetime import datetime, timedelta, date
 from google.oauth2 import service_account
 from googleapiclient.discovery import build
-from zoneinfo import ZoneInfo
 
 # ================================
 # 🔐 CONFIGURAÇÕES
@@ -23,7 +22,6 @@ PROFISSIONAL_ID = int(os.getenv("PROFISSIONAL_ID"))
 PER_PAGE = 50
 TIMEZONE = "America/Sao_Paulo"
 INTERVALO_EXECUCAO = 15 * 60  # 15 minutos em segundos
-# INTERVALO_EXECUCAO = 28800  # 8 horas em segundos
 
 # Validação básica de segurança
 if not FEEGOW_API_KEY:
@@ -231,52 +229,14 @@ def buscar_nome_procedimento(procedimento_id):
 # ================================
 # BUSCAR TODOS EVENTOS GOOGLE
 # ================================
-# BACKUP V
-# def buscar_todos_eventos_feegow():
-#     eventos_feegow = []
-#     page_token = None
-
-#     time_min = datetime.combine(data_start, datetime.min.time()).isoformat() + "Z"
-#     time_max = datetime.combine(data_end, datetime.max.time()).isoformat() + "Z"
-
-#     while True:
-#         eventos = calendar.events().list(
-#             calendarId=CALENDAR_ID,
-#             timeMin=time_min,
-#             timeMax=time_max,
-#             singleEvents=True,
-#             pageToken=page_token
-#         ).execute()
-
-#         for item in eventos.get("items", []):
-#             feegow_id = (
-#                 item.get("extendedProperties", {})
-#                     .get("private", {})
-#                     .get("feegow_id")
-#             )
-
-#             if feegow_id:
-#                 eventos_feegow.append((feegow_id, item["id"]))
-
-#         page_token = eventos.get("nextPageToken")
-#         if not page_token:
-#             break
-
-#     return eventos_feegow
 
 def buscar_todos_eventos_feegow():
-    eventos_feegow = {}
+    eventos_feegow = []
     page_token = None
-
-    time_min = datetime.combine(data_start, datetime.min.time()).isoformat() + "Z"
-    time_max = datetime.combine(data_end, datetime.max.time()).isoformat() + "Z"
 
     while True:
         eventos = calendar.events().list(
             calendarId=CALENDAR_ID,
-            timeMin=time_min,
-            timeMax=time_max,
-            singleEvents=True,
             pageToken=page_token
         ).execute()
 
@@ -288,7 +248,7 @@ def buscar_todos_eventos_feegow():
             )
 
             if feegow_id:
-                eventos_feegow[str(feegow_id)] = item
+                eventos_feegow.append((feegow_id, item["id"]))
 
         page_token = eventos.get("nextPageToken")
         if not page_token:
@@ -299,25 +259,15 @@ def buscar_todos_eventos_feegow():
 # ================================
 # 🔍 BUSCAR EVENTO GOOGLE POR ID
 # ================================
+def buscar_evento_por_feegow_id(feegow_id):
+    eventos = calendar.events().list(
+        calendarId=CALENDAR_ID,
+        privateExtendedProperty=f"feegow_id={feegow_id}",
+        maxResults=1
+    ).execute()
 
-# def buscar_evento_por_feegow_id(feegow_id):
-
-#     time_min = datetime.combine(data_start, datetime.min.time()).isoformat() + "Z"
-#     time_max = datetime.combine(data_end, datetime.max.time()).isoformat() + "Z"
-
-#     eventos = calendar.events().list(
-#         calendarId=CALENDAR_ID,
-#         privateExtendedProperty=f"feegow_id={feegow_id}",
-#         timeMin=time_min,
-#         timeMax=time_max,
-#         singleEvents=True,
-#         maxResults=1
-#     ).execute()
-
-#     items = eventos.get("items", [])
-#     return items[0] if items else None
-
-    
+    items = eventos.get("items", [])
+    return items[0] if items else None
 
 # ================================
 # 🧠 VERIFICAR SE PRECISA ATUALIZAR
@@ -352,42 +302,13 @@ def migrar_agenda():
     atualizados = 0
     removidos = 0
 
-
-    # ==========================================
-    # 🗑️ REMOVER EVENTOS QUE SUMIRAM DO FEEGOW
-    # ==========================================
-
-    ids_feegow_atuais = {
-        str(ag.get("agendamento_id"))
-        for ag in agendamentos
-        if ag.get("agendamento_id")
-    }
-
-    eventos_google = buscar_todos_eventos_feegow()
-
-    for feegow_id_google, event_id_google in eventos_google:
-
-        if feegow_id_google not in ids_feegow_atuais:
-
-            logging.warning(
-                f"🗑️ REMOVENDO (Sumiu do Feegow) → feegow_id={feegow_id_google}"
-            )
-
-            calendar.events().delete(
-                calendarId=CALENDAR_ID,
-                eventId=event_id_google
-            ).execute()
-
-            removidos += 1
-
-
     for ag in agendamentos:
         try:
             feegow_id = ag.get("agendamento_id")
             status_id = ag.get("status_id")
             status_nome = status_map.get(status_id, "")
 
-            evento_existente = eventos_google.get(str(feegow_id))
+            evento_existente = buscar_evento_por_feegow_id(str(feegow_id))
 
             # ============================
             # 🔴 REMOVER SE DESMARCADO (11 ou 16)
@@ -425,8 +346,7 @@ def migrar_agenda():
             inicio_dt = datetime.strptime(
                 f"{data} {horario}",
                 "%d-%m-%Y %H:%M:%S"
-            ).replace(tzinfo=ZoneInfo("America/Sao_Paulo"))
-            
+            )
             fim_dt = inicio_dt + timedelta(minutes=30)
 
             paciente_nome = buscar_nome_paciente(ag.get("paciente_id"))
