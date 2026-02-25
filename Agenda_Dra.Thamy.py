@@ -294,7 +294,63 @@ def evento_precisa_atualizar(evento_google, novo_evento):
 # ================================
 # 📅 SINCRONIZAR
 # ================================
+def limpar_duplicados_paciente_dia():
+    logging.info("🧹 Verificando duplicados por paciente_id + dia")
+
+    eventos = calendar.events().list(
+        calendarId=CALENDAR_ID,
+        maxResults=2500
+    ).execute().get("items", [])
+
+    mapa = {}
+
+    for evento in eventos:
+        private = evento.get("extendedProperties", {}).get("private", {})
+        paciente_id = private.get("paciente_id")
+
+        if not paciente_id:
+            continue
+
+        start = evento.get("start", {}).get("dateTime")
+        if not start:
+            continue
+
+        dia = start.split("T")[0]
+
+        chave = f"{paciente_id}_{dia}"
+
+        if chave not in mapa:
+            mapa[chave] = [evento]
+        else:
+            mapa[chave].append(evento)
+
+    removidos = 0
+
+    for chave, lista_eventos in mapa.items():
+        if len(lista_eventos) > 1:
+            # Mantém apenas o primeiro
+            lista_eventos.sort(key=lambda x: x["created"])
+            manter = lista_eventos[0]
+
+            for evento in lista_eventos[1:]:
+                logging.warning(
+                    f"🗑️ Removendo duplicado paciente_id={evento['extendedProperties']['private'].get('paciente_id')} "
+                    f"dia={evento['start']['dateTime']}"
+                )
+
+                calendar.events().delete(
+                    calendarId=CALENDAR_ID,
+                    eventId=evento["id"]
+                ).execute()
+
+                removidos += 1
+
+    logging.info(f"🧹 Total duplicados removidos: {removidos}")
+
 def migrar_agenda():
+    
+    limpar_duplicados_paciente_dia() 
+
     status_map = buscar_mapa_status()
     agendamentos = buscar_agendamentos()
 
@@ -381,10 +437,10 @@ def migrar_agenda():
                 "transparency": transparency,
                 "extendedProperties": {
                     "private": {
-                        "feegow_id": str(feegow_id)
+                        "feegow_id": str(feegow_id),
+                        "paciente_id": str(ag.get("paciente_id"))
                     }
                 }
-            }
 
             if colorId:
                 evento["colorId"] = colorId
