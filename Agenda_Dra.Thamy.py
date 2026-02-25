@@ -304,6 +304,8 @@ def evento_precisa_atualizar(evento_google, novo_evento):
 def migrar_agenda():
     status_map = buscar_mapa_status()
     agendamentos = buscar_agendamentos()
+##criado para tentar resolver o bug de recriar agendamento quando ele é excluído e remarcado
+    eventos_google_map = dict(buscar_todos_eventos_feegow())
 
     criados = 0
     atualizados = 0
@@ -344,7 +346,16 @@ def migrar_agenda():
             status_id = ag.get("status_id")
             status_nome = status_map.get(status_id, "")
 
-            evento_existente = buscar_evento_por_feegow_id(str(feegow_id))
+           # evento_existente = buscar_evento_por_feegow_id(str(feegow_id))
+
+            event_id_google = eventos_google_map.get(str(feegow_id))
+            evento_existente = None
+            
+            if event_id_google:
+                evento_existente = calendar.events().get(
+                    calendarId=CALENDAR_ID,
+                    eventId=event_id_google
+                ).execute()
 
             # ============================
             # 🔴 REMOVER SE DESMARCADO (11 ou 16)
