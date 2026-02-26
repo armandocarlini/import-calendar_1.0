@@ -22,6 +22,7 @@ PROFISSIONAL_ID = int(os.getenv("PROFISSIONAL_ID"))
 PER_PAGE = 50
 TIMEZONE = "America/Sao_Paulo"
 INTERVALO_EXECUCAO = 15 * 60  # 15 minutos em segundos
+# INTERVALO_EXECUCAO = 28800  # 8 horas em segundos
 
 # Validação básica de segurança
 if not FEEGOW_API_KEY:
@@ -234,9 +235,15 @@ def buscar_todos_eventos_feegow():
     eventos_feegow = []
     page_token = None
 
+    time_min = datetime.combine(data_start, datetime.min.time()).isoformat() + "Z"
+    time_max = datetime.combine(data_end, datetime.max.time()).isoformat() + "Z"
+
     while True:
         eventos = calendar.events().list(
             calendarId=CALENDAR_ID,
+            timeMin=time_min,
+            timeMax=time_max,
+            singleEvents=True,
             pageToken=page_token
         ).execute()
 
@@ -294,69 +301,42 @@ def evento_precisa_atualizar(evento_google, novo_evento):
 # ================================
 # 📅 SINCRONIZAR
 # ================================
-def limpar_duplicados_paciente_dia():
-    logging.info("🧹 Verificando duplicados por paciente_id + dia")
-
-    eventos = calendar.events().list(
-        calendarId=CALENDAR_ID,
-        maxResults=2500
-    ).execute().get("items", [])
-
-    mapa = {}
-
-    for evento in eventos:
-        private = evento.get("extendedProperties", {}).get("private", {})
-        paciente_id = private.get("paciente_id")
-
-        if not paciente_id:
-            continue
-
-        start = evento.get("start", {}).get("dateTime")
-        if not start:
-            continue
-
-        dia = start.split("T")[0]
-
-        chave = f"{paciente_id}_{dia}"
-
-        if chave not in mapa:
-            mapa[chave] = [evento]
-        else:
-            mapa[chave].append(evento)
-
-    removidos = 0
-
-    for chave, lista_eventos in mapa.items():
-        if len(lista_eventos) > 1:
-            # Mantém apenas o primeiro
-            lista_eventos.sort(key=lambda x: x["created"])
-            manter = lista_eventos[0]
-
-            for evento in lista_eventos[1:]:
-                logging.warning(
-                    f"🗑️ Removendo duplicado paciente_id={evento['extendedProperties']['private'].get('paciente_id')} "
-                    f"dia={evento['start']['dateTime']}"
-                )
-
-                calendar.events().delete(
-                    calendarId=CALENDAR_ID,
-                    eventId=evento["id"]
-                ).execute()
-
-                removidos += 1
-
-    logging.info(f"🧹 Total duplicados removidos: {removidos}")
-
 def migrar_agenda():
-    
-    limpar_duplicados_paciente_dia() 
-
     status_map = buscar_mapa_status()
     agendamentos = buscar_agendamentos()
 
     criados = 0
     atualizados = 0
     removidos = 0
+
+
+    # ==========================================
+    # 🗑️ REMOVER EVENTOS QUE SUMIRAM DO FEEGOW
+    # ==========================================
+
+    ids_feegow_atuais = {
+        str(ag.get("agendamento_id"))
+        for ag in agendamentos
+        if ag.get("agendamento_id")
+    }
+
+    eventos_google = buscar_todos_eventos_feegow()
+
+    for feegow_id_google, event_id_google in eventos_google:
+
+        if feegow_id_google not in ids_feegow_atuais:
+
+            logging.warning(
+                f"🗑️ REMOVENDO (Sumiu do Feegow) → feegow_id={feegow_id_google}"
+            )
+
+            calendar.events().delete(
+                calendarId=CALENDAR_ID,
+                eventId=event_id_google
+            ).execute()
+
+            removidos += 1
+
 
     for ag in agendamentos:
         try:
@@ -437,10 +417,10 @@ def migrar_agenda():
                 "transparency": transparency,
                 "extendedProperties": {
                     "private": {
-                        "feegow_id": str(feegow_id),
-                        "paciente_id": str(ag.get("paciente_id"))
+                        "feegow_id": str(feegow_id)
                     }
                 }
+            }
 
             if colorId:
                 evento["colorId"] = colorId
